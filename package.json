@@ -1,12 +1,10 @@
 {
-  "name": "fave-nuvio-resolver",
+  "name": "favez-decoder",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "start": "node server.js"
-  },
   "dependencies": {
-    "express": "^5.1.0"
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5"
   }
 }
