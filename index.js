@@ -1,72 +1,85 @@
-const express = require('express');
-const cors = require('cors');
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-const app = express();
-app.use(cors());
+module.exports = async (req, res) => {
+  // הגדרת CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-// מניפסט התוסף
-const decoderManifest = {
-  id: 'org.nuvio.favez.decoder',
-  version: '1.0.0',
-  name: 'Favez Decoder Addon',
-  description: 'מפענח דפי תוצאות וממיר לקישורי צפייה (PixelDrain/Gofile)',
-  types: ['movie', 'series'],
-  catalogs: [],
-  resources: ['stream'],
-  idPrefixes: ['fv_']
-};
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-app.get('/manifest.json', (req, res) => {
-  res.json(decoderManifest);
-});
+  // זיהוי הנתיב לפי ה-URL שנקרא
+  const urlPath = req.url || '';
 
-// נקודת הקצה של הסטרימים עבור Nuvio
-app.get('/stream/:type/:id.json', async (req, res) => {
-  const encodedLink = req.params.id.replace('fv_', '');
-  
-  try {
-    const targetPageUrl = Buffer.from(encodedLink, 'base64').toString('utf8');
+  // 1. נתיב המניפסט
+  if (urlPath.includes('manifest.json')) {
+    const decoderManifest = {
+      id: 'org.nuvio.favez.decoder',
+      version: '1.0.0',
+      name: 'Favez Decoder Addon',
+      description: 'מפענח דפי תוצאות וממיר לקישורי צפייה (PixelDrain/Gofile)',
+      types: ['movie', 'series'],
+      catalogs: [],
+      resources: ['stream'],
+      idPrefixes: ['fv_']
+    };
+    return res.status(200).json(decoderManifest);
+  }
 
-    const { data: html } = await axios.get(targetPageUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
+  // 2. נתיב הסטרימים (/stream/movie/fv_xxxx.json)
+  if (urlPath.includes('/stream/')) {
+    try {
+      // חילוץ ה-ID מתוך הנתיב
+      const parts = urlPath.split('/');
+      const idWithExt = parts[parts.length - 1]; // למשל fv_xxxx.json
+      const idClean = idWithExt.replace('.json', '');
+      const encodedLink = idClean.replace('fv_', '');
 
-    const $ = cheerio.load(html);
-    const streams = [];
+      // פענוח הכתובת מ-Base64
+      const targetPageUrl = Buffer.from(encodedLink, 'base64').toString('utf8');
 
-    $('a').each((i, el) => {
-      const href = $(el).attr('href');
-      const text = $(el).text().trim();
+      const { data: html } = await axios.get(targetPageUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      });
 
-      if (href) {
-        if (href.includes('pixeldrain.com')) {
-          const match = href.match(/\/u\/([a-zA-Z0-9]+)/);
-          if (match && match[1]) {
+      const $ = cheerio.load(html);
+      const streams = [];
+
+      $('a').each((i, el) => {
+        const href = $(el).attr('href');
+        const text = $(el).text().trim();
+
+        if (href) {
+          if (href.includes('pixeldrain.com')) {
+            const match = href.match(/\/u\/([a-zA-Z0-9]+)/);
+            if (match && match[1]) {
+              streams.push({
+                title: `PixelDrain - ${text || 'צפייה ישירה'}`,
+                url: `https://pixeldrain.com/api/file/${match[1]}`
+              });
+            }
+          } else if (href.includes('gofile.io') || href.includes('1fichier.com') || href.includes('usersdrive.com')) {
             streams.push({
-              title: `PixelDrain - ${text || 'צפייה ישירה'}`,
-              url: `https://pixeldrain.com/api/file/${match[1]}`
+              title: text || 'שרת הורדה',
+              url: href
             });
           }
-        } else if (href.includes('gofile.io') || href.includes('1fichier.com') || href.includes('usersdrive.com')) {
-          streams.push({
-            title: text || 'שרת הורדה',
-            url: href
-          });
         }
-      }
-    });
+      });
 
-    const uniqueStreams = Array.from(new Set(streams.map(s => s.url)))
-      .map(url => streams.find(s => s.url === url));
+      const uniqueStreams = Array.from(new Set(streams.map(s => s.url)))
+        .map(url => streams.find(s => s.url === url));
 
-    res.json({ streams: uniqueStreams });
-  } catch (error) {
-    console.error('Decoding stream error:', error.message);
-    res.json({ streams: [] });
+      return res.status(200).json({ streams: uniqueStreams });
+    } catch (error) {
+      console.error('Error processing stream:', error.message);
+      return res.status(200).json({ streams: [] });
+    }
   }
-});
 
-// ייצוא עבור Vercel Serverless
-module.exports = app;
+  // ברירת מחדל אם הנתיב לא מוכר
+  return res.status(404).json({ error: 'Not Found' });
+};
