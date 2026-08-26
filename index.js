@@ -2,7 +2,6 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 module.exports = async (req, res) => {
-  // הגדרת CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -11,10 +10,9 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  // זיהוי הנתיב לפי ה-URL שנקרא
   const urlPath = req.url || '';
 
-  // 1. נתיב המניפסט
+  // 1. מניפסט התוסף
   if (urlPath.includes('manifest.json')) {
     const decoderManifest = {
       id: 'org.nuvio.favez.decoder',
@@ -29,16 +27,14 @@ module.exports = async (req, res) => {
     return res.status(200).json(decoderManifest);
   }
 
-  // 2. נתיב הסטרימים (/stream/movie/fv_xxxx.json)
+  // 2. סטרימים
   if (urlPath.includes('/stream/')) {
     try {
-      // חילוץ ה-ID מתוך הנתיב
       const parts = urlPath.split('/');
-      const idWithExt = parts[parts.length - 1]; // למשל fv_xxxx.json
+      const idWithExt = parts[parts.length - 1];
       const idClean = idWithExt.replace('.json', '');
       const encodedLink = idClean.replace('fv_', '');
 
-      // פענוח הכתובת מ-Base64
       const targetPageUrl = Buffer.from(encodedLink, 'base64').toString('utf8');
 
       const { data: html } = await axios.get(targetPageUrl, {
@@ -80,6 +76,5 @@ module.exports = async (req, res) => {
     }
   }
 
-  // ברירת מחדל אם הנתיב לא מוכר
   return res.status(404).json({ error: 'Not Found' });
 };
