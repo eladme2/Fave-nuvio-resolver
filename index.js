@@ -1,5 +1,6 @@
+
 const axios = require('axios');
-const cheerio =quire('cheerio');
+const cheerio = require('cheerio');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,6 +13,7 @@ module.exports = async (req, res) => {
 
   const urlPath = req.url || '';
 
+  // Manifest
   if (urlPath.includes('manifest.json')) {
     const decoderManifest = {
       id: 'org.nuvio.favez.decoder',
@@ -23,9 +25,11 @@ module.exports = async (req, res) => {
       resources: ['stream'],
       idPrefixes: ['fv_']
     };
+
     return res.status(200).json(decoderManifest);
   }
 
+  // Stream decoder
   if (urlPath.includes('/stream/')) {
     try {
       const parts = urlPath.split('/');
@@ -33,10 +37,22 @@ module.exports = async (req, res) => {
       const idClean = idWithExt.replace('.json', '');
       const encodedLink = idClean.replace('fv_', '');
 
-      const targetPageUrl = Buffer.from(encodedLink, 'base64').toString('utf8');
+      const targetPageUrl = Buffer
+        .from(encodedLink, 'base64')
+        .toString('utf8');
+
+      // Validate target URL
+      const parsedUrl = new URL(targetPageUrl);
+
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('Invalid URL protocol');
+      }
 
       const { data: html } = await axios.get(targetPageUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        timeout: 20000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
       });
 
       const $ = cheerio.load(html);
@@ -46,33 +62,48 @@ module.exports = async (req, res) => {
         const href = $(el).attr('href');
         const text = $(el).text().trim();
 
-        if (href) {
-          if (href.includes('pixeldrain.com')) {
-            const match = href.match(/\/u\/([a-zA-Z0-9]+)/);
-            if (match && match[1]) {
-              streams.push({
-                title: `PixelDrain - ${text || 'צפייה ישירה'}`,
-                url: `https://pixeldrain.com/api/file/${match[1]}`
-              });
-            }
-          } else if (href.includes('gofile.io') || href.includes('1fichier.com') || href.includes('usersdrive.com')) {
+        if (!href) return;
+
+        if (href.includes('pixeldrain.com')) {
+          const match = href.match(/\/u\/([a-zA-Z0-9]+)/);
+
+          if (match && match[1]) {
             streams.push({
-              title: text || 'שרת הורדה',
-              url: href
+              title: `PixelDrain - ${text || 'צפייה ישירה'}`,
+              url: `https://pixeldrain.com/api/file/${match[1]}`
             });
           }
+        } else if (
+          href.includes('gofile.io') ||
+          href.includes('1fichier.com') ||
+          href.includes('usersdrive.com')
+        ) {
+          streams.push({
+            title: text || 'שרת הורדה',
+            url: href
+          });
         }
       });
 
-      const uniqueStreams = Array.from(new Set(streams.map(s => s.url)))
-        .map(url => streams.find(s => s.url === url));
+      const uniqueStreams = Array.from(
+        new Map(streams.map(s => [s.url, s])).values()
+      );
 
-      return res.status(200).json({ streams: uniqueStreams });
+      return res.status(200).json({
+        streams: uniqueStreams
+      });
+
     } catch (error) {
       console.error('Error processing stream:', error.message);
-      return res.status(200).json({ streams: [] });
+
+      return res.status(200).json({
+        streams: [],
+        error: error.message
+      });
     }
   }
 
-  return res.status(404).json({ error: 'Not Found' });
+  return res.status(404).json({
+    error: 'Not Found'
+  });
 };
